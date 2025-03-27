@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>即時股票交易系統</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        display: flex;
+        gap: 20px;
+      }
+      .panel {
+        background: white;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        flex: 1;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 15px;
+      }
+      th,
+      td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+      }
+      th {
+        background-color: #f8f8f8;
+      }
+      tr:hover {
+        background-color: #f1f1f1;
+      }
+      .up {
+        color: green;
+      }
+      .down {
+        color: red;
+      }
+      .action-buttons {
+        display: flex;
+        gap: 10px;
+      }
+      button {
+        padding: 8px 12px;
+        cursor: pointer;
+        border: none;
+        border-radius: 4px;
+        font-weight: bold;
+      }
+      .buy-btn {
+        background-color: #4caf50;
+        color: white;
+      }
+      .sell-btn {
+        background-color: #f44336;
+        color: white;
+      }
+      input[type="number"] {
+        width: 80px;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      .portfolio-summary {
+        margin-top: 20px;
+        padding: 15px;
+        background-color: #e8f5e9;
+        border-radius: 8px;
+      }
+      .transaction-history {
+        height: 300px;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>即時股票交易系統</h1>
+
+    <div class="container">
+      <div class="panel">
+        <h2>市場行情</h2>
+        <table id="stock-table">
+          <thead>
+            <tr>
+              <th>股票代碼</th>
+              <th>價格</th>
+              <th>變動</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="stock-data">
+            <!-- 股票數據將在這裡動態生成 -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h2>我的投資組合</h2>
+        <table id="portfolio-table">
+          <thead>
+            <tr>
+              <th>股票代碼</th>
+              <th>持有數量</th>
+              <th>平均買入價</th>
+              <th>當前價值</th>
+              <th>未實現盈虧</th>
+            </tr>
+          </thead>
+          <tbody id="portfolio-data">
+            <!-- 投資組合數據將在這裡動態生成 -->
+          </tbody>
+        </table>
+
+        <div class="portfolio-summary" id="portfolio-summary">
+          <!-- 投資組合摘要將在這裡動態生成 -->
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 20px">
+      <h2>交易歷史</h2>
+      <div class="transaction-history" id="transaction-history">
+        <!-- 交易歷史將在這裡動態生成 -->
+      </div>
+    </div>
+
+    <script>
+      // 全局變量
+      let stockPrices = {};
+      let previousPrices = {};
+      let portfolio = {
+        stocks: {}, // 股票數量
+        averageBuyPrices: {}, // 平均買入價
+        investedAmount: {}, // 投資金額
+        realizedProfit: 0, // 已實現盈虧
+      };
+      let transactions = [];
+      let inputValues = {};
+
+      // 連接WebSocket
+      const socket = new WebSocket("ws://localhost:8080");
+
+      socket.onopen = function () {
+        console.log("已連接到股票交易伺服器");
+      };
+
+      socket.onmessage = function (event) {
+        try {
+          const data = JSON.parse(event.data);
+
+          // 檢查是否收到的是股票價格數據
+          if (
+            typeof data === "object" &&
+            Object.keys(data).some((key) => data[key].hasOwnProperty("price"))
+          ) {
+            saveInputValues();
+            // 保存之前的價格來計算變動
+            previousPrices = { ...stockPrices };
+            stockPrices = data;
+            updateStockTable();
+            updatePortfolioTable();
+            restoreInputValues();
+          } else {
+            // 顯示訂單確認訊息
+            addToTransactionHistory(data);
+          }
+        } catch (e) {
+          // 處理非JSON消息
+          addToTransactionHistory(event.data);
+        }
+      };
+
+      socket.onerror = function (error) {
+        console.error("WebSocket錯誤:", error);
+      };
+
+      socket.onclose = function () {
+        console.log("與股票交易伺服器的連接已關閉");
+      };
+
+      // 保存所有輸入框的值
+      function saveInputValues() {
+        for (const stock in stockPrices) {
+          const inputElem = document.getElementById(`amount-${stock}`);
+          if (inputElem) {
+            inputValues[stock] = inputElem.value;
+          }
+        }
+      }
+
+      // 恢復所有輸入框的值
+      function restoreInputValues() {
+        for (const stock in inputValues) {
+          const inputElem = document.getElementById(`amount-${stock}`);
+          if (inputElem) {
+            inputElem.value = inputValues[stock];
+          }
+        }
+      }
+
+      // 更新股票表格
+      function updateStockTable() {
+        const stockDataElem = document.getElementById("stock-data");
+        stockDataElem.innerHTML = "";
+
+        for (const stock in stockPrices) {
+          const currentPrice = stockPrices[stock].price;
+          const previousPrice = previousPrices[stock]?.price || currentPrice;
+          const priceChange = currentPrice - previousPrice;
+          const changeClass = priceChange >= 0 ? "up" : "down";
+          const changeSymbol = priceChange >= 0 ? "▲" : "▼";
+
+          const row = document.createElement("tr");
+          row.innerHTML = `
+                    <td>${stock}</td>
+                    <td>${currentPrice.toFixed(2)}</td>
+                    <td class="${changeClass}">${changeSymbol} ${Math.abs(
+            priceChange
+          ).toFixed(2)}</td>
+                    <td class="action-buttons">
+                        <input type="number" id="amount-${stock}" min="1" value="100">
+                        <button class="buy-btn" onclick="placeOrder('${stock}', 'BUY')">買入</button>
+                        <button class="sell-btn" onclick="placeOrder('${stock}', 'SELL')">賣出</button>
+                    </td>
+                `;
+          stockDataElem.appendChild(row);
+        }
+      }
+
+      // 更新投資組合表格
+      function updatePortfolioTable() {
+        const portfolioDataElem = document.getElementById("portfolio-data");
+        const summaryElem = document.getElementById("portfolio-summary");
+
+        portfolioDataElem.innerHTML = "";
+
+        let totalInvested = 0;
+        let totalCurrentValue = 0;
+        let totalUnrealizedProfit = 0;
+
+        for (const stock in portfolio.stocks) {
+          if (portfolio.stocks[stock] > 0) {
+            const quantity = portfolio.stocks[stock];
+            const avgBuyPrice = portfolio.averageBuyPrices[stock];
+            const currentPrice = stockPrices[stock]?.price || 0;
+            const currentValue = quantity * currentPrice;
+            const invested = quantity * avgBuyPrice;
+            const unrealizedProfit = currentValue - invested;
+            const profitClass = unrealizedProfit >= 0 ? "up" : "down";
+
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                            <td>${stock}</td>
+                            <td>${quantity}</td>
+                            <td>${avgBuyPrice.toFixed(2)}</td>
+                            <td>${currentValue.toFixed(2)}</td>
+                            <td class="${profitClass}">${unrealizedProfit.toFixed(
+              2
+            )}</td>
+                        `;
+            portfolioDataElem.appendChild(row);
+
+            totalInvested += invested;
+            totalCurrentValue += currentValue;
+            totalUnrealizedProfit += unrealizedProfit;
+          }
+        }
+
+        // 更新投資組合摘要
+        summaryElem.innerHTML = `
+                <p><strong>總投資金額:</strong> ${totalInvested.toFixed(2)}</p>
+                <p><strong>當前總值:</strong> ${totalCurrentValue.toFixed(
+                  2
+                )}</p>
+                <p><strong>未實現盈虧:</strong> <span class="${
+                  totalUnrealizedProfit >= 0 ? "up" : "down"
+                }">${totalUnrealizedProfit.toFixed(2)}</span></p>
+                <p><strong>已實現盈虧:</strong> <span class="${
+                  portfolio.realizedProfit >= 0 ? "up" : "down"
+                }">${portfolio.realizedProfit.toFixed(2)}</span></p>
+                <p><strong>總盈虧:</strong> <span class="${
+                  totalUnrealizedProfit + portfolio.realizedProfit >= 0
+                    ? "up"
+                    : "down"
+                }">${(totalUnrealizedProfit + portfolio.realizedProfit).toFixed(
+          2
+        )}</span></p>
+            `;
+      }
+
+      // 下單
+      function placeOrder(stock, action) {
+        const amountInput = document.getElementById(`amount-${stock}`);
+        const amount = parseInt(amountInput.value, 10);
+
+        if (isNaN(amount) || amount <= 0) {
+          alert("請輸入有效的股票數量");
+          return;
+        }
+
+        // 檢查是否有足夠的股票可賣出
+        if (action === "SELL") {
+          const currentHoldings = portfolio.stocks[stock] || 0;
+          if (amount > currentHoldings) {
+            alert(
+              `您只持有 ${currentHoldings} 股 ${stock}，無法賣出 ${amount} 股`
+            );
+            return;
+          }
+        }
+
+        // 發送訂單到伺服器
+        socket.send(JSON.stringify({ action, stock, amount }));
+
+        // 更新本地投資組合數據
+        updatePortfolio(stock, amount, action);
+
+        // 記錄交易
+        const transaction = {
+          timestamp: new Date(),
+          action: action,
+          stock: stock,
+          amount: amount,
+          price: stockPrices[stock].price,
+        };
+        transactions.push(transaction);
+
+        // 添加到交易歷史顯示
+        addToTransactionHistory(
+          `${transaction.timestamp.toLocaleString()}: ${action} ${amount} 股 ${stock} @ ${transaction.price.toFixed(
+            2
+          )}`
+        );
+
+        // 更新投資組合顯示
+        updatePortfolioTable();
+      }
+
+      // 更新投資組合數據
+      function updatePortfolio(stock, amount, action) {
+        const currentPrice = stockPrices[stock].price;
+
+        // 初始化股票數據（如果還沒有的話）
+        if (!portfolio.stocks[stock]) {
+          portfolio.stocks[stock] = 0;
+          portfolio.averageBuyPrices[stock] = 0;
+          portfolio.investedAmount[stock] = 0;
+        }
+
+        if (action === "BUY") {
+          // 計算新的總投資額
+          const newInvestment = amount * currentPrice;
+          const totalShares = portfolio.stocks[stock] + amount;
+          const totalInvestment =
+            portfolio.investedAmount[stock] + newInvestment;
+
+          // 更新投資組合數據
+          portfolio.stocks[stock] = totalShares;
+          portfolio.investedAmount[stock] = totalInvestment;
+          portfolio.averageBuyPrices[stock] = totalInvestment / totalShares;
+        } else if (action === "SELL") {
+          // 計算賣出的成本和利潤
+          const saleValue = amount * currentPrice;
+          const costBasis = amount * portfolio.averageBuyPrices[stock];
+          const profit = saleValue - costBasis;
+
+          // 更新已實現盈虧
+          portfolio.realizedProfit += profit;
+
+          // 更新持股數量
+          portfolio.stocks[stock] -= amount;
+
+          // 更新投資總額
+          portfolio.investedAmount[stock] -= costBasis;
+
+          // 如果所有股票都賣光了，重置平均買入價
+          if (portfolio.stocks[stock] === 0) {
+            portfolio.averageBuyPrices[stock] = 0;
+            portfolio.investedAmount[stock] = 0;
+          }
+        }
+      }
+
+      // 添加訊息到交易歷史
+      function addToTransactionHistory(message) {
+        const historyElem = document.getElementById("transaction-history");
+        const messageElem = document.createElement("p");
+        messageElem.style.borderBottom = "1px solid #eee";
+        messageElem.style.padding = "8px 0";
+        messageElem.textContent =
+          typeof message === "string" ? message : JSON.stringify(message);
+        historyElem.insertBefore(messageElem, historyElem.firstChild);
+      }
+    </script>
+  </body>
+</html>
