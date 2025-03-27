@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>台股即時交易系統</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .panel {
+        background: white;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        flex: 1;
+        min-width: 300px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 15px;
+      }
+      th,
+      td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+      }
+      th {
+        background-color: #f8f8f8;
+      }
+      tr:hover {
+        background-color: #f1f1f1;
+      }
+      .up {
+        color: #d33; /* 台股漲用紅色 */
+      }
+      .down {
+        color: #2b2; /* 台股跌用綠色 */
+      }
+      .action-buttons {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      button {
+        padding: 8px 12px;
+        cursor: pointer;
+        border: none;
+        border-radius: 4px;
+        font-weight: bold;
+      }
+      .buy-btn {
+        background-color: #d33; /* 買入用紅色 */
+        color: white;
+      }
+      .sell-btn {
+        background-color: #2b2; /* 賣出用綠色 */
+        color: white;
+      }
+      input[type="number"] {
+        width: 80px;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      .portfolio-summary {
+        margin-top: 20px;
+        padding: 15px;
+        background-color: #fff8e1;
+        border-radius: 8px;
+      }
+      .transaction-history {
+        height: 300px;
+        overflow-y: auto;
+      }
+      .search-box {
+        padding: 10px;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+      }
+      #stock-search {
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        width: 200px;
+        margin-right: 10px;
+      }
+      .stock-detail span {
+        font-size: 0.85em;
+        color: #666;
+        margin-left: 5px;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .refresh-btn {
+        background-color: #1e88e5;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>台股即時交易系統</h1>
+
+    <div class="container">
+      <div class="panel">
+        <div class="header">
+          <h2>市場行情</h2>
+          <button class="refresh-btn" onclick="refreshData()">重新整理</button>
+        </div>
+
+        <div class="search-box">
+          <input
+            type="text"
+            id="stock-search"
+            placeholder="搜尋股票代號或名稱..."
+          />
+          <button onclick="searchStocks()">搜尋</button>
+        </div>
+
+        <table id="stock-table">
+          <thead>
+            <tr>
+              <th>股票代號</th>
+              <th>名稱</th>
+              <th>價格</th>
+              <th>漲跌</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="stock-data">
+            <!-- 股票數據將在這裡動態生成 -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h2>我的投資組合</h2>
+        <table id="portfolio-table">
+          <thead>
+            <tr>
+              <th>股票代號</th>
+              <th>名稱</th>
+              <th>持有數量</th>
+              <th>平均買入價</th>
+              <th>當前價值</th>
+              <th>未實現盈虧</th>
+            </tr>
+          </thead>
+          <tbody id="portfolio-data">
+            <!-- 投資組合數據將在這裡動態生成 -->
+          </tbody>
+        </table>
+
+        <div class="portfolio-summary" id="portfolio-summary">
+          <!-- 投資組合摘要將在這裡動態生成 -->
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 20px">
+      <h2>交易歷史</h2>
+      <div class="transaction-history" id="transaction-history">
+        <!-- 交易歷史將在這裡動態生成 -->
+      </div>
+    </div>
+
+    <script>
+      // 全局變量
+      let stockPrices = {};
+      let previousPrices = {};
+      let portfolio = {
+        stocks: {}, // 股票數量
+        averageBuyPrices: {}, // 平均買入價
+        investedAmount: {}, // 投資金額
+        realizedProfit: 0, // 已實現盈虧
+      };
+      let transactions = [];
+      let inputValues = {}; // 保存每個股票的輸入值
+
+      // 從本地存儲加載投資組合數據
+      function loadPortfolio() {
+        const savedPortfolio = localStorage.getItem("portfolio");
+        if (savedPortfolio) {
+          portfolio = JSON.parse(savedPortfolio);
+        }
+
+        const savedTransactions = localStorage.getItem("transactions");
+        if (savedTransactions) {
+          transactions = JSON.parse(savedTransactions);
+
+          // 恢復交易歷史中的日期對象
+          transactions.forEach((tx) => {
+            if (typeof tx.timestamp === "string") {
+              tx.timestamp = new Date(tx.timestamp);
+            }
+          });
+
+          // 顯示交易歷史
+          transactions
+            .slice()
+            .reverse()
+            .forEach((tx) => {
+              addToTransactionHistory(
+                `${new Date(tx.timestamp).toLocaleString()}: ${tx.action} ${
+                  tx.amount
+                } 股 ${tx.stock} @ ${tx.price.toFixed(2)}`
+              );
+            });
+        }
+      }
+
+      // 保存投資組合數據到本地存儲
+      function savePortfolio() {
+        localStorage.setItem("portfolio", JSON.stringify(portfolio));
+        localStorage.setItem("transactions", JSON.stringify(transactions));
+      }
+
+      // 連接WebSocket
+      const socket = new WebSocket("ws://localhost:8080");
+
+      socket.onopen = function () {
+        console.log("已連接到股票交易伺服器");
+        addToTransactionHistory("已連接到股票交易伺服器");
+
+        // 加載保存的投資組合數據
+        loadPortfolio();
+      };
+
+      socket.onmessage = function (event) {
+        try {
+          const data = JSON.parse(event.data);
+
+          // 檢查是否收到的是股票價格數據
+          if (typeof data === "object" && !data.action) {
+            // 保存當前輸入框的值
+            saveInputValues();
+
+            // 保存之前的價格來計算變動
+            previousPrices = { ...stockPrices };
+            stockPrices = data;
+
+            updateStockTable();
+            updatePortfolioTable();
+
+            // 恢復輸入框的值
+            restoreInputValues();
+          } else {
+            // 顯示訂單確認訊息
+            addToTransactionHistory(data);
+          }
+        } catch (e) {
+          // 處理非JSON消息
+          addToTransactionHistory(event.data);
+        }
+      };
+
+      socket.onerror = function (error) {
+        console.error("WebSocket錯誤:", error);
+        addToTransactionHistory("連接錯誤: " + error.message);
+      };
+
+      socket.onclose = function () {
+        console.log("與股票交易伺服器的連接已關閉");
+        addToTransactionHistory("與股票交易伺服器的連接已關閉");
+      };
+
+      // 保存所有輸入框的值
+      function saveInputValues() {
+        for (const stock in stockPrices) {
+          const inputElem = document.getElementById(`amount-${stock}`);
+          if (inputElem) {
+            inputValues[stock] = inputElem.value;
+          }
+        }
+      }
+
+      // 恢復所有輸入框的值
+      function restoreInputValues() {
+        for (const stock in inputValues) {
+          const inputElem = document.getElementById(`amount-${stock}`);
+          if (inputElem) {
+            inputElem.value = inputValues[stock];
+          }
+        }
+      }
+
+      // 搜尋股票
+      function searchStocks() {
+        const searchTerm = document
+          .getElementById("stock-search")
+          .value.toLowerCase();
+        const stockRows = document.querySelectorAll("#stock-data tr");
+
+        stockRows.forEach((row) => {
+          const stockCode = row
+            .querySelector("td:first-child")
+            .textContent.toLowerCase();
+          const stockName = row
+            .querySelector("td:nth-child(2)")
+            .textContent.toLowerCase();
+
+          if (
+            stockCode.includes(searchTerm) ||
+            stockName.includes(searchTerm)
+          ) {
+            row.style.display = "";
+          } else {
+            row.style.display = "none";
+          }
+        });
+      }
+
+      // 重新整理數據
+      function refreshData() {
+        if (socket.readyState === WebSocket.OPEN) {
+          addToTransactionHistory("正在重新整理股票數據...");
+          // 發送一個請求以獲取最新數據
+          socket.send(JSON.stringify({ action: "REFRESH" }));
+        } else {
+          addToTransactionHistory("無法重新整理：伺服器連接已關閉");
+        }
+      }
+
+      // 更新股票表格
+      function updateStockTable() {
+        const stockDataElem = document.getElementById("stock-data");
+
+        // 檢查表格是否已存在，如果是第一次則創建表格
+        if (stockDataElem.childElementCount === 0) {
+          createStockTable(stockDataElem);
+        } else {
+          // 更新現有表格的價格和變動信息
+          for (const stock in stockPrices) {
+            const priceCell = document.getElementById(`price-${stock}`);
+            const changeCell = document.getElementById(`change-${stock}`);
+
+            if (priceCell && changeCell) {
+              const currentPrice = stockPrices[stock].price;
+              const priceChange = stockPrices[stock].change;
+              const changeClass = priceChange >= 0 ? "up" : "down";
+              const changeSymbol = priceChange >= 0 ? "▲" : "▼";
+
+              priceCell.textContent = currentPrice.toFixed(2);
+              changeCell.textContent = `${changeSymbol} ${Math.abs(
+                priceChange
+              ).toFixed(2)}`;
+              changeCell.className = changeClass;
+            }
+          }
+        }
+      }
+
+      // 創建股票表格（僅在第一次調用）
+      function createStockTable(stockDataElem) {
+        const sortedStocks = Object.keys(stockPrices).sort();
+
+        for (const stock of sortedStocks) {
+          const stockInfo = stockPrices[stock];
+          const currentPrice = stockInfo.price;
+          const priceChange = stockInfo.change;
+          const changeClass = priceChange >= 0 ? "up" : "down";
+          const changeSymbol = priceChange >= 0 ? "▲" : "▼";
+
+          const row = document.createElement("tr");
+          row.innerHTML = `
+                    <td>${stock}</td>
+                    <td class="stock-detail">${stockInfo.name}</td>
+                    <td id="price-${stock}">${currentPrice.toFixed(2)}</td>
+                    <td id="change-${stock}" class="${changeClass}">${changeSymbol} ${Math.abs(
+            priceChange
+          ).toFixed(2)}</td>
+                    <td class="action-buttons">
+                        <input type="number" id="amount-${stock}" min="1" value="1000">
+                        <button class="buy-btn" onclick="placeOrder('${stock}', 'BUY')">買入</button>
+                        <button class="sell-btn" onclick="placeOrder('${stock}', 'SELL')">賣出</button>
+                    </td>
+                `;
+          stockDataElem.appendChild(row);
+
+          // 初始化輸入值
+          inputValues[stock] = 1000;
+        }
+      }
+
+      // 更新投資組合表格
+      function updatePortfolioTable() {
+        const portfolioDataElem = document.getElementById("portfolio-data");
+        const summaryElem = document.getElementById("portfolio-summary");
+
+        portfolioDataElem.innerHTML = "";
+
+        let totalInvested = 0;
+        let totalCurrentValue = 0;
+        let totalUnrealizedProfit = 0;
+
+        for (const stock in portfolio.stocks) {
+          if (portfolio.stocks[stock] > 0) {
+            const quantity = portfolio.stocks[stock];
+            const avgBuyPrice = portfolio.averageBuyPrices[stock];
+            const currentPrice = stockPrices[stock]?.price || 0;
+            const stockName = stockPrices[stock]?.name || "未知";
+            const currentValue = quantity * currentPrice;
+            const invested = quantity * avgBuyPrice;
+            const unrealizedProfit = currentValue - invested;
+            const profitClass = unrealizedProfit >= 0 ? "up" : "down";
+
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                        <td>${stock}</td>
+                        <td>${stockName}</td>
+                        <td>${quantity}</td>
+                        <td>${avgBuyPrice.toFixed(2)}</td>
+                        <td>${currentValue.toFixed(2)}</td>
+                        <td class="${profitClass}">${unrealizedProfit.toFixed(
+              2
+            )}</td>
+                    `;
+            portfolioDataElem.appendChild(row);
+
+            totalInvested += invested;
+            totalCurrentValue += currentValue;
+            totalUnrealizedProfit += unrealizedProfit;
+          }
+        }
+
+        // 更新投資組合摘要
+        summaryElem.innerHTML = `
+                <p><strong>總投資金額:</strong> ${totalInvested.toFixed(2)}</p>
+                <p><strong>當前總值:</strong> ${totalCurrentValue.toFixed(
+                  2
+                )}</p>
+                <p><strong>未實現盈虧:</strong> <span class="${
+                  totalUnrealizedProfit >= 0 ? "up" : "down"
+                }">${totalUnrealizedProfit.toFixed(2)}</span></p>
+                <p><strong>已實現盈虧:</strong> <span class="${
+                  portfolio.realizedProfit >= 0 ? "up" : "down"
+                }">${portfolio.realizedProfit.toFixed(2)}</span></p>
+                <p><strong>總盈虧:</strong> <span class="${
+                  totalUnrealizedProfit + portfolio.realizedProfit >= 0
+                    ? "up"
+                    : "down"
+                }">${(totalUnrealizedProfit + portfolio.realizedProfit).toFixed(
+          2
+        )}</span></p>
+            `;
+      }
+
+      // 下單
+      function placeOrder(stock, action) {
+        if (!stockPrices[stock]) {
+          alert(`找不到股票 ${stock} 的價格資訊`);
+          return;
+        }
+
+        const amountInput = document.getElementById(`amount-${stock}`);
+        const amount = parseInt(amountInput.value, 10);
+
+        if (isNaN(amount) || amount <= 0) {
+          alert("請輸入有效的股票數量");
+          return;
+        }
+
+        // 檢查是否有足夠的股票可賣出
+        if (action === "SELL") {
+          const currentHoldings = portfolio.stocks[stock] || 0;
+          if (amount > currentHoldings) {
+            alert(
+              `您只持有 ${currentHoldings} 股 ${stock}，無法賣出 ${amount} 股`
+            );
+            return;
+          }
+        }
+
+        // 發送訂單到伺服器
+        socket.send(JSON.stringify({ action, stock, amount }));
+
+        // 更新本地投資組合數據
+        updatePortfolio(stock, amount, action);
+
+        // 記錄交易
+        const transaction = {
+          timestamp: new Date(),
+          action: action,
+          stock: stock,
+          amount: amount,
+          price: stockPrices[stock].price,
+        };
+        transactions.push(transaction);
+
+        // 保存到本地存儲
+        savePortfolio();
+
+        // 添加到交易歷史顯示
+        addToTransactionHistory(
+          `${transaction.timestamp.toLocaleString()}: ${action} ${amount} 股 ${stock} (${
+            stockPrices[stock].name
+          }) @ ${transaction.price.toFixed(2)}`
+        );
+
+        // 更新投資組合顯示
+        updatePortfolioTable();
+      }
+
+      // 更新投資組合數據
+      function updatePortfolio(stock, amount, action) {
+        const currentPrice = stockPrices[stock].price;
+
+        // 初始化股票數據（如果還沒有的話）
+        if (!portfolio.stocks[stock]) {
+          portfolio.stocks[stock] = 0;
+          portfolio.averageBuyPrices[stock] = 0;
+          portfolio.investedAmount[stock] = 0;
+        }
+
+        if (action === "BUY") {
+          // 計算新的總投資額
+          const newInvestment = amount * currentPrice;
+          const totalShares = portfolio.stocks[stock] + amount;
+          const totalInvestment =
+            portfolio.investedAmount[stock] + newInvestment;
+
+          // 更新投資組合數據
+          portfolio.stocks[stock] = totalShares;
+          portfolio.investedAmount[stock] = totalInvestment;
+          portfolio.averageBuyPrices[stock] = totalInvestment / totalShares;
+        } else if (action === "SELL") {
+          // 計算賣出的成本和利潤
+          const saleValue = amount * currentPrice;
+          const costBasis = amount * portfolio.averageBuyPrices[stock];
+          const profit = saleValue - costBasis;
+
+          // 更新已實現盈虧
+          portfolio.realizedProfit += profit;
+
+          // 更新持股數量
+          portfolio.stocks[stock] -= amount;
+
+          // 更新投資總額
+          portfolio.investedAmount[stock] -= costBasis;
+
+          // 如果所有股票都賣光了，重置平均買入價
+          if (portfolio.stocks[stock] === 0) {
+            portfolio.averageBuyPrices[stock] = 0;
+            portfolio.investedAmount[stock] = 0;
+          }
+        }
+      }
+
+      // 添加訊息到交易歷史
+      function addToTransactionHistory(message) {
+        const historyElem = document.getElementById("transaction-history");
+        const messageElem = document.createElement("p");
+        messageElem.style.borderBottom = "1px solid #eee";
+        messageElem.style.padding = "8px 0";
+        messageElem.textContent =
+          typeof message === "string" ? message : JSON.stringify(message);
+        historyElem.insertBefore(messageElem, historyElem.firstChild);
+      }
+
+      // 監聽搜尋欄位的輸入事件
+      document
+        .getElementById("stock-search")
+        .addEventListener("input", searchStocks);
+    </script>
+  </body>
+</html>
