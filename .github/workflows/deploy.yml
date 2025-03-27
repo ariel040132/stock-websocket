@@ -1,0 +1,32 @@
+name: 部署到GitHub Pages
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 檢出代碼
+        uses: actions/checkout@v2
+
+      - name: 設置Node.js環境
+        uses: actions/setup-node@v2
+        with:
+          node-version: "16"
+
+      - name: 安裝依賴
+        run: npm ci
+
+      - name: 構建靜態文件
+        run: |
+          mkdir -p dist
+          cp stock-trading.html dist/index.html
+          cp -r assets dist/ || true
+
+      - name: 部署到GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@4.1.4
+        with:
+          branch: gh-pages
+          folder: dist
