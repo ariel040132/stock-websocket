@@ -230,7 +230,9 @@
       }
 
       // 連接WebSocket
-      const socket = new WebSocket("ws://localhost:8080");
+      const socket = new WebSocket(
+        "wss://stock-websocket-production-32fc.up.railway.app"
+      );
 
       socket.onopen = function () {
         console.log("已連接到股票交易伺服器");
