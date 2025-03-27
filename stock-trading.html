@@ -564,6 +564,42 @@
 
       // 添加訊息到交易歷史
       function addToTransactionHistory(message) {
+        // 檢查是否是股票數據對象（含有股票代碼和價格數據的對象）
+        if (
+          typeof message === "object" &&
+          !message.action &&
+          Object.values(message).some(
+            (stock) => stock && stock.hasOwnProperty("price")
+          )
+        ) {
+          // 這是股票數據更新，不顯示在歷史記錄中
+          return;
+        }
+
+        // 如果是字符串形式的JSON對象，嘗試解析它
+        if (
+          typeof message === "string" &&
+          message.startsWith("{") &&
+          message.endsWith("}")
+        ) {
+          try {
+            const parsedMsg = JSON.parse(message);
+            // 檢查是否為股票數據
+            if (
+              Object.values(parsedMsg).some(
+                (val) =>
+                  val && typeof val === "object" && val.hasOwnProperty("price")
+              )
+            ) {
+              // 這是股票數據，不顯示
+              return;
+            }
+          } catch (e) {
+            // 解析失敗，不是有效的JSON，繼續顯示
+          }
+        }
+
+        // 正常顯示其他類型的消息
         const historyElem = document.getElementById("transaction-history");
         const messageElem = document.createElement("p");
         messageElem.style.borderBottom = "1px solid #eee";
